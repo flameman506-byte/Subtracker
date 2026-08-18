@@ -13,9 +13,15 @@ class Converters {
 
     @TypeConverter
     fun toBillingCycle(value: String): BillingCycle = BillingCycle.valueOf(value)
+
+    @TypeConverter
+    fun fromCategory(value: Category): String = value.name
+
+    @TypeConverter
+    fun toCategory(value: String): Category = Category.valueOf(value)
 }
 
-@Database(entities = [Subscription::class], version = 1, exportSchema = false)
+@Database(entities = [Subscription::class], version = 2, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun subscriptionDao(): SubscriptionDao
@@ -29,7 +35,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "subtracker.db"
-                ).build().also { INSTANCE = it }
+                ).fallbackToDestructiveMigration().build().also { INSTANCE = it }
             }
     }
 }

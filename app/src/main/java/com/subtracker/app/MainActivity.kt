@@ -3,9 +3,11 @@ package com.subtracker.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
@@ -25,6 +27,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private lateinit var billingManager: BillingManager
+    private val authManager = AuthManager()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,7 +39,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             SubTrackerTheme {
                 Surface(color = MaterialTheme.colorScheme.background) {
-                    SubTrackerApp(dao = db.subscriptionDao(), billingManager = billingManager, activity = this)
+                    SubTrackerApp(dao = db.subscriptionDao(), billingManager = billingManager, authManager = authManager, activity = this)
                 }
             }
         }
@@ -46,7 +49,7 @@ class MainActivity : ComponentActivity() {
 private enum class Tab(val label: String) { HOME("Home"), SUBSCRIPTIONS("Subscriptions"), INSIGHTS("Insights"), ACCOUNT("Account") }
 
 @Composable
-fun SubTrackerApp(dao: SubscriptionDao, billingManager: BillingManager, activity: ComponentActivity) {
+fun SubTrackerApp(dao: SubscriptionDao, billingManager: BillingManager, authManager: AuthManager, activity: ComponentActivity) {
     val scope = rememberCoroutineScope()
     val subscriptions by dao.getAll().collectAsStateWithLifecycle(initialValue = emptyList())
     val isPremium by billingManager.isPremium.collectAsStateWithLifecycle()
@@ -104,8 +107,8 @@ fun SubTrackerApp(dao: SubscriptionDao, billingManager: BillingManager, activity
             when (selectedTab) {
                 Tab.HOME -> HomeScreen(subscriptions, monthlyTotal, isPremium)
                 Tab.SUBSCRIPTIONS -> SubscriptionsScreen(subscriptions)
-                Tab.INSIGHTS -> PlaceholderScreen("Insights", "Spending charts and smart suggestions are coming in the next update.")
-                Tab.ACCOUNT -> PlaceholderScreen("Account", "Login, signup, and account settings are coming in the next update.")
+                Tab.INSIGHTS -> InsightsScreen(subscriptions)
+                Tab.ACCOUNT -> AccountScreen(authManager)
             }
         }
     }
@@ -113,14 +116,15 @@ fun SubTrackerApp(dao: SubscriptionDao, billingManager: BillingManager, activity
     if (showAddDialog) {
         AddSubscriptionDialog(
             onDismiss = { showAddDialog = false },
-            onAdd = { name, cost, cycle ->
+            onAdd = { name, cost, cycle, category ->
                 scope.launch {
                     dao.insert(
                         Subscription(
                             name = name,
                             cost = cost,
                             billingCycle = cycle,
-                            nextRenewalEpochDay = java.time.LocalDate.now().plusMonths(1).toEpochDay()
+                            nextRenewalEpochDay = java.time.LocalDate.now().plusMonths(1).toEpochDay(),
+                            category = category
                         )
                     )
                 }
@@ -256,10 +260,11 @@ fun PlaceholderScreen(title: String, message: String) {
 }
 
 @Composable
-fun AddSubscriptionDialog(onDismiss: () -> Unit, onAdd: (String, Double, BillingCycle) -> Unit) {
+fun AddSubscriptionDialog(onDismiss: () -> Unit, onAdd: (String, Double, BillingCycle, Category) -> Unit) {
     var name by remember { mutableStateOf("") }
     var cost by remember { mutableStateOf("") }
     var cycle by remember { mutableStateOf(BillingCycle.MONTHLY) }
+    var category by remember { mutableStateOf(Category.OTHER) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -275,12 +280,25 @@ fun AddSubscriptionDialog(onDismiss: () -> Unit, onAdd: (String, Double, Billing
                     Spacer(modifier = Modifier.width(8.dp))
                     FilterChip(selected = cycle == BillingCycle.YEARLY, onClick = { cycle = BillingCycle.YEARLY }, label = { Text("Yearly") })
                 }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Category", style = MaterialTheme.typography.bodySmall, color = SubTrackerTextSecondary)
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                    Category.values().forEach { cat ->
+                        FilterChip(
+                            selected = category == cat,
+                            onClick = { category = cat },
+                            label = { Text(cat.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                            modifier = Modifier.padding(end = 6.dp)
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             Button(onClick = {
                 val costValue = cost.toDoubleOrNull() ?: 0.0
-                if (name.isNotBlank() && costValue > 0) onAdd(name, costValue, cycle)
+                if (name.isNotBlank() && costValue > 0) onAdd(name, costValue, cycle, category)
             }) { Text("Add") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
